@@ -110,12 +110,12 @@ st.markdown(f"""
             background-color: {BLACK};
             color: {WHITE};
         }}
-        .pitcher-view-text {{
+        .catcher-view-text {{
             text-align: center;
             color: #A9A9A9;
             font-size: 14px;
             font-style: italic;
-            margin-top: 5px;
+            margin-top: 15px;
             margin-bottom: 25px;
         }}
     </style>
@@ -168,9 +168,9 @@ def generate_html_report(date_str, pitcher, splits_html, arsenal_html, movement_
             .header-white {{ color: {WHITE}; }}
             .splits-table tr:nth-child(even) {{ background-color: {LIGHT_GRAY}; }}
             .plot-container {{ display: flex; justify-content: center; margin-top: 10px; }}
-            .grid-table {{ border: none; box-shadow: none; width: 100%; margin-bottom: 5px; table-layout: fixed; }}
-            .grid-table td {{ border: none; padding: 2px; text-align: center; vertical-align: middle; }}
-            .pitcher-view-text {{ text-align: center; color: #A9A9A9; font-size: 11px; font-style: italic; margin-top: 0px; }}
+            .grid-table {{ border: none; box-shadow: none; width: 90%; margin: 0 auto 5px auto; table-layout: fixed; border-collapse: separate; border-spacing: 10px 0; }}
+            .grid-table td {{ border: none; padding: 0; text-align: center; vertical-align: middle; }}
+            .catcher-view-text {{ text-align: center; color: #A9A9A9; font-size: 11px; font-style: italic; margin-top: 10px; }}
             @media print {{
                 @page {{ margin: 10mm; }}
             }}
@@ -204,7 +204,7 @@ def generate_html_report(date_str, pitcher, splits_html, arsenal_html, movement_
                     <td>{plot_damage}</td>
                 </tr>
             </table>
-            <div class="pitcher-view-text">*All location plots are displayed from a pitcher's view.</div>
+            <div class="catcher-view-text">*All location plots are displayed from a catcher's view.</div>
         </div>
     </body>
     </html>
@@ -222,7 +222,7 @@ def create_location_plot(plot_df, title):
         layer="below"
     )
     
-    # Home Plate Shape (Pitcher's View)
+    # Home Plate Shape (Catcher's View - pointing back towards viewer/catcher)
     fig.add_shape(type="path",
         path="M -0.71 0.25 L 0.71 0.25 L 0.71 0.1 L 0 0 L -0.71 0.1 Z",
         fillcolor=WHITE, line=dict(color=BLACK, width=2),
@@ -261,12 +261,13 @@ def create_location_plot(plot_df, title):
 
     fig.update_layout(
         title=dict(text=title, x=0.5, font=dict(size=14, color=BLACK, family="Helvetica Neue, Arial, sans-serif")),
-        xaxis=dict(title="", range=[2.5, -2.5], zeroline=False, showticklabels=False),
+        # Catcher's View: Left to Right matches actual perspective
+        xaxis=dict(title="", range=[-2.5, 2.5], zeroline=False, showticklabels=False),
         yaxis=dict(title="", range=[-0.2, 5.0], zeroline=False, showticklabels=False),
-        width=160, height=280,  # Taller, narrower aspect ratio
+        width=160, height=280, 
         plot_bgcolor=WHITE,
         showlegend=False,
-        margin=dict(l=5, r=5, t=30, b=5), # Very little gaps
+        margin=dict(l=5, r=5, t=30, b=5), 
         paper_bgcolor='rgba(0,0,0,0)'
     )
     
@@ -370,7 +371,7 @@ with tab_dash:
                 free = len(data[(data['PitchCall'] == 'HitByPitch') | (data['KorBB'] == 'Walk')])
                 hits = len(data[data['PlayResult'].isin(['Single', 'Double', 'Triple', 'HomeRun'])])
                 
-                # New FPS% Logic: 0 Balls and 1 Strikes pitches divided by batters faced
+                # FPS% Logic: 0 Balls and 1 Strikes pitches divided by batters faced
                 fps_count = len(data[(data['Balls'] == 0) & (data['Strikes'] == 1)])
                 fps_pct = f"{(fps_count / batters_faced * 100):.1f}%" if batters_faced > 0 else "0%"
                 
@@ -554,14 +555,14 @@ with tab_dash:
             fig_whiff = create_location_plot(df_whiff, "Whiff")
             fig_damage = create_location_plot(df_damage, "Damage")
             
-            # Tightly spaced 4 columns for Dashboard
-            col_loc1, col_loc2, col_loc3, col_loc4 = st.columns(4, gap="small")
+            # Centered and evenly spaced layout for the Dashboard
+            col_spacer1, col_loc1, col_loc2, col_loc3, col_loc4, col_spacer2 = st.columns([1, 3, 3, 3, 3, 1])
             with col_loc1: st.plotly_chart(fig_pre2k, use_container_width=True)
             with col_loc2: st.plotly_chart(fig_2k, use_container_width=True)
             with col_loc3: st.plotly_chart(fig_whiff, use_container_width=True)
             with col_loc4: st.plotly_chart(fig_damage, use_container_width=True)
                 
-            st.markdown("<div class='pitcher-view-text'>*All location plots are displayed from a pitcher's view.</div>", unsafe_allow_html=True)
+            st.markdown("<div class='catcher-view-text'>*All location plots are displayed from a catcher's view.</div>", unsafe_allow_html=True)
             
             plotly_html_pre2k = fig_pre2k.to_html(full_html=False, include_plotlyjs=False)
             plotly_html_2k = fig_2k.to_html(full_html=False, include_plotlyjs=False)
