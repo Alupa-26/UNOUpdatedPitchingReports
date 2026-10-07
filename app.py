@@ -110,6 +110,14 @@ st.markdown(f"""
             background-color: {BLACK};
             color: {WHITE};
         }}
+        .pitcher-view-text {{
+            text-align: center;
+            color: #A9A9A9;
+            font-size: 14px;
+            font-style: italic;
+            margin-top: 5px;
+            margin-bottom: 25px;
+        }}
     </style>
 """, unsafe_allow_html=True)
 
@@ -138,7 +146,8 @@ def format_val(val, decimals=1):
     except:
         return "-"
 
-def generate_html_report(date_str, pitcher, splits_html, arsenal_html, movement_plot_html):
+def generate_html_report(date_str, pitcher, splits_html, arsenal_html, movement_plot_html, 
+                         plot_pre2k, plot_2k, plot_whiff, plot_damage):
     logo_b64 = get_base64_image("Logo.png")
     img_tag = f'<img src="data:image/png;base64,{logo_b64}" style="height: 60px;">' if logo_b64 else ''
     
@@ -150,7 +159,7 @@ def generate_html_report(date_str, pitcher, splits_html, arsenal_html, movement_
             body {{ font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; margin: 40px; color: {BLACK}; }}
             .header-container {{ display: flex; justify-content: space-between; align-items: center; border-bottom: 3px solid {OMAHA_RED}; padding-bottom: 15px; margin-bottom: 30px; }}
             h2 {{ text-align: center; margin: 0; font-size: 24px; text-transform: uppercase; letter-spacing: 1px; }}
-            .section-title {{ text-align: center; text-transform: uppercase; font-size: 18px; margin-top: 30px; margin-bottom: 10px; }}
+            .section-title {{ text-align: center; text-transform: uppercase; font-size: 18px; margin-top: 30px; margin-bottom: 10px; font-weight: bold; }}
             table {{ width: 100%; border-collapse: collapse; margin-bottom: 20px; text-align: center; font-size: 14px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }}
             th, td {{ border: 1px solid #ddd; padding: 12px; }}
             th {{ background-color: {BLACK}; border-bottom: 3px solid {OMAHA_RED}; }}
@@ -158,6 +167,9 @@ def generate_html_report(date_str, pitcher, splits_html, arsenal_html, movement_
             .header-white {{ color: {WHITE}; }}
             .splits-table tr:nth-child(even) {{ background-color: {LIGHT_GRAY}; }}
             .plot-container {{ display: flex; justify-content: center; margin-top: 20px; }}
+            .grid-table {{ border: none; box-shadow: none; width: 100%; margin-bottom: 5px; }}
+            .grid-table td {{ border: none; padding: 5px; text-align: center; }}
+            .pitcher-view-text {{ text-align: center; color: #A9A9A9; font-size: 12px; font-style: italic; margin-top: 0px; }}
         </style>
     </head>
     <body>
@@ -177,10 +189,79 @@ def generate_html_report(date_str, pitcher, splits_html, arsenal_html, movement_
         <div class="plot-container">
             {movement_plot_html}
         </div>
+        
+        <div style="page-break-before: always;"></div>
+        
+        <div class="section-title">PITCH LOCATION PLOTS</div>
+        <table class="grid-table">
+            <tr>
+                <td>{plot_pre2k}</td>
+                <td>{plot_2k}</td>
+            </tr>
+            <tr>
+                <td>{plot_whiff}</td>
+                <td>{plot_damage}</td>
+            </tr>
+        </table>
+        <div class="pitcher-view-text">*All location plots are displayed from a pitcher's view.</div>
     </body>
     </html>
     """
     return html
+
+def create_location_plot(plot_df, title):
+    fig = go.Figure()
+    
+    # Strike Zone Shape
+    fig.add_shape(type="rect",
+        x0=-0.8, y0=1.575, x1=0.8, y1=3.575,
+        line=dict(color=BLACK, width=2),
+        fillcolor="gray", opacity=0.3,
+        layer="below"
+    )
+    
+    if 'TaggedPitchType' in plot_df.columns and 'PlateLocSide' in plot_df.columns and 'PlateLocHeight' in plot_df.columns:
+        for pt in plot_df['TaggedPitchType'].dropna().unique():
+            pt_df = plot_df[plot_df['TaggedPitchType'] == pt].copy()
+            if pt_df.empty: continue
+            
+            abbr, bg_color, text_color = PITCH_DICT.get(pt, (pt, WHITE, BLACK))
+            
+            hover_text = pt_df.apply(lambda row: 
+                f"<b>{abbr}</b><br>"
+                f"Velo: {format_val(row.get('RelSpeed'))} mph<br>"
+                f"IVB: {format_val(row.get('InducedVertBreak'))} in<br>"
+                f"HB: {format_val(row.get('HorzBreak'))} in<br>"
+                f"VAA: {format_val(row.get('VertApprAngle'))}°<br>"
+                f"Call: {row.get('PitchCall', '-')}<br>"
+                f"Exit Speed: {format_val(row.get('ExitSpeed'))} mph", axis=1)
+            
+            fig.add_trace(go.Scatter(
+                x=pt_df['PlateLocSide'],
+                y=pt_df['PlateLocHeight'],
+                mode='markers',
+                name=abbr,
+                marker=dict(
+                    size=10,
+                    color=bg_color,
+                    line=dict(width=1, color=BLACK)
+                ),
+                text=hover_text,
+                hoverinfo='text'
+            ))
+
+    fig.update_layout(
+        title=dict(text=title, x=0.5, font=dict(size=18, color=BLACK, family="Helvetica Neue, Arial, sans-serif")),
+        # Reverse autorange sets standard Umpire X coordinates to a Pitcher's View (Left is Right, Right is Left)
+        xaxis=dict(title="PlateLocSide", range=[2.5, -2.5], zeroline=False, gridcolor=LIGHT_GRAY, showticklabels=False),
+        yaxis=dict(title="PlateLocHeight", range=[0, 5], zeroline=False, gridcolor=LIGHT_GRAY, showticklabels=False),
+        width=450, height=450,
+        plot_bgcolor=WHITE,
+        showlegend=False,
+        margin=dict(l=20, r=20, t=50, b=20),
+        paper_bgcolor='rgba(0,0,0,0)'
+    )
+    return fig
 
 # --- UI HEADER ---
 col1, col2, col3 = st.columns([1, 4, 1])
@@ -388,9 +469,9 @@ with tab_dash:
             # --- MOVEMENT PLOT (PLOTLY) ---
             st.markdown("<div class='section-title'>PITCH MOVEMENT PLOT</div>", unsafe_allow_html=True)
             
-            fig = go.Figure()
-            fig.add_hline(y=0, line_dash="dash", line_color=BLACK, opacity=0.4)
-            fig.add_vline(x=0, line_dash="dash", line_color=BLACK, opacity=0.4)
+            fig_mov = go.Figure()
+            fig_mov.add_hline(y=0, line_dash="dash", line_color=BLACK, opacity=0.4)
+            fig_mov.add_vline(x=0, line_dash="dash", line_color=BLACK, opacity=0.4)
 
             if 'TaggedPitchType' in df.columns and 'HorzBreak' in df.columns and 'InducedVertBreak' in df.columns:
                 for pt in df['TaggedPitchType'].dropna().unique():
@@ -407,21 +488,17 @@ with tab_dash:
                         f"VAA: {format_val(row.get('VertApprAngle'))}°<br>"
                         f"Call: {row.get('PitchCall', '-')}", axis=1)
                     
-                    fig.add_trace(go.Scatter(
+                    fig_mov.add_trace(go.Scatter(
                         x=pt_df['HorzBreak'],
                         y=pt_df['InducedVertBreak'],
                         mode='markers',
                         name=abbr,
-                        marker=dict(
-                            size=10,
-                            color=bg_color,
-                            line=dict(width=1, color=BLACK)
-                        ),
+                        marker=dict(size=10, color=bg_color, line=dict(width=1, color=BLACK)),
                         text=hover_text,
                         hoverinfo='text'
                     ))
 
-            fig.update_layout(
+            fig_mov.update_layout(
                 xaxis=dict(title="Horizontal Break (in)", range=[-30, 30], zeroline=False, gridcolor=LIGHT_GRAY),
                 yaxis=dict(title="Induced Vertical Break (in)", range=[-30, 30], zeroline=False, gridcolor=LIGHT_GRAY),
                 width=600, height=600,
@@ -433,14 +510,56 @@ with tab_dash:
 
             col_plot1, col_plot2, col_plot3 = st.columns([1, 2, 1])
             with col_plot2:
-                st.plotly_chart(fig, use_container_width=True)
+                st.plotly_chart(fig_mov, use_container_width=True)
 
-            plotly_html = fig.to_html(full_html=False, include_plotlyjs='cdn')
+            plotly_html_mov = fig_mov.to_html(full_html=False, include_plotlyjs='cdn')
+            
+            st.markdown("---")
+            
+            # --- LOCATION PLOTS ---
+            st.markdown("<div class='section-title'>PITCH LOCATION PLOTS</div>", unsafe_allow_html=True)
+            
+            # Data subsets
+            df_pre2k = df[df['Strikes'].fillna(0) < 2]
+            df_2k = df[df['Strikes'] == 2]
+            df_whiff = df[df['PitchCall'] == 'StrikeSwinging']
+            
+            # Damage criteria: Hit result + ExitSpeed > 96 + Angle between 15 and 25
+            damage_results = ['Single', 'Double', 'Triple', 'HomeRun']
+            df_damage = df[
+                (df['PlayResult'].isin(damage_results)) & 
+                (df['ExitSpeed'].fillna(0) > 96) & 
+                (df['Angle'].fillna(0) >= 15) & 
+                (df['Angle'].fillna(0) <= 25)
+            ]
+            
+            fig_pre2k = create_location_plot(df_pre2k, "Pre 2K")
+            fig_2k = create_location_plot(df_2k, "2K")
+            fig_whiff = create_location_plot(df_whiff, "Whiff")
+            fig_damage = create_location_plot(df_damage, "Damage")
+            
+            col_loc1, col_loc2 = st.columns(2)
+            with col_loc1:
+                st.plotly_chart(fig_pre2k, use_container_width=True)
+                st.plotly_chart(fig_whiff, use_container_width=True)
+            with col_loc2:
+                st.plotly_chart(fig_2k, use_container_width=True)
+                st.plotly_chart(fig_damage, use_container_width=True)
+                
+            st.markdown("<div class='pitcher-view-text'>*All location plots are displayed from a pitcher's view.</div>", unsafe_allow_html=True)
+            
+            plotly_html_pre2k = fig_pre2k.to_html(full_html=False, include_plotlyjs=False)
+            plotly_html_2k = fig_2k.to_html(full_html=False, include_plotlyjs=False)
+            plotly_html_whiff = fig_whiff.to_html(full_html=False, include_plotlyjs=False)
+            plotly_html_damage = fig_damage.to_html(full_html=False, include_plotlyjs=False)
             
             # --- PDF / PRINT EXPORT ---
             st.markdown("<br>", unsafe_allow_html=True)
             
-            report_html = generate_html_report(date_str, selected_pitcher, splits_html_full, arsenal_html_full, plotly_html)
+            report_html = generate_html_report(
+                date_str, selected_pitcher, splits_html_full, arsenal_html_full, 
+                plotly_html_mov, plotly_html_pre2k, plotly_html_2k, plotly_html_whiff, plotly_html_damage
+            )
             b64_html = base64.b64encode(report_html.encode('utf-8')).decode()
             
             col_btn1, col_btn2, col_btn3 = st.columns([1, 2, 1])
