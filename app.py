@@ -1,4 +1,4 @@
-import streamlit as st
+\import streamlit as st
 import pandas as pd
 import numpy as np
 import os
@@ -151,7 +151,6 @@ def generate_html_report(date_str, pitcher, splits_html, arsenal_html, movement_
     logo_b64 = get_base64_image("Logo.png")
     img_tag = f'<img src="data:image/png;base64,{logo_b64}" style="height: 50px;">' if logo_b64 else ''
     
-    # HTML formatted to tightly fit onto a single portrait PDF page with a global border
     html = f"""
     <!DOCTYPE html>
     <html>
@@ -169,7 +168,7 @@ def generate_html_report(date_str, pitcher, splits_html, arsenal_html, movement_
             .header-white {{ color: {WHITE}; }}
             .splits-table tr:nth-child(even) {{ background-color: {LIGHT_GRAY}; }}
             .plot-container {{ display: flex; justify-content: center; margin-top: 10px; }}
-            .grid-table {{ border: none; box-shadow: none; width: 100%; margin-bottom: 5px; }}
+            .grid-table {{ border: none; box-shadow: none; width: 100%; margin-bottom: 5px; table-layout: fixed; }}
             .grid-table td {{ border: none; padding: 2px; text-align: center; vertical-align: middle; }}
             .pitcher-view-text {{ text-align: center; color: #A9A9A9; font-size: 11px; font-style: italic; margin-top: 0px; }}
             @media print {{
@@ -223,6 +222,13 @@ def create_location_plot(plot_df, title):
         layer="below"
     )
     
+    # Home Plate Shape (Pitcher's View)
+    fig.add_shape(type="path",
+        path="M -0.71 0.25 L 0.71 0.25 L 0.71 0.1 L 0 0 L -0.71 0.1 Z",
+        fillcolor=WHITE, line=dict(color=BLACK, width=2),
+        layer="below"
+    )
+    
     if 'TaggedPitchType' in plot_df.columns and 'PlateLocSide' in plot_df.columns and 'PlateLocHeight' in plot_df.columns:
         for pt in plot_df['TaggedPitchType'].dropna().unique():
             pt_df = plot_df[plot_df['TaggedPitchType'] == pt].copy()
@@ -255,12 +261,12 @@ def create_location_plot(plot_df, title):
 
     fig.update_layout(
         title=dict(text=title, x=0.5, font=dict(size=14, color=BLACK, family="Helvetica Neue, Arial, sans-serif")),
-        xaxis=dict(title="PlateLocSide", range=[2.5, -2.5], zeroline=False, showticklabels=False),
-        yaxis=dict(title="PlateLocHeight", range=[0, 5], zeroline=False, showticklabels=False),
-        width=180, height=180,  # Sized specifically to fit 4 side-by-side in PDF
+        xaxis=dict(title="", range=[2.5, -2.5], zeroline=False, showticklabels=False),
+        yaxis=dict(title="", range=[-0.2, 5.0], zeroline=False, showticklabels=False),
+        width=160, height=280,  # Taller, narrower aspect ratio
         plot_bgcolor=WHITE,
         showlegend=False,
-        margin=dict(l=10, r=10, t=30, b=10),
+        margin=dict(l=5, r=5, t=30, b=5), # Very little gaps
         paper_bgcolor='rgba(0,0,0,0)'
     )
     
@@ -364,9 +370,9 @@ with tab_dash:
                 free = len(data[(data['PitchCall'] == 'HitByPitch') | (data['KorBB'] == 'Walk')])
                 hits = len(data[data['PlayResult'].isin(['Single', 'Double', 'Triple', 'HomeRun'])])
                 
-                fps_pitches = data[(data['Balls'] == 0) & (data['Strikes'] == 0)]
-                fps_strikes = fps_pitches[fps_pitches['PitchCall'].isin(['StrikeCalled', 'StrikeSwinging', 'FoulBallFieldable', 'FoulBallNotFieldable', 'InPlay'])]
-                fps_pct = f"{(len(fps_strikes) / batters_faced * 100):.1f}%" if batters_faced > 0 else "0%"
+                # New FPS% Logic: 0 Balls and 1 Strikes pitches divided by batters faced
+                fps_count = len(data[(data['Balls'] == 0) & (data['Strikes'] == 1)])
+                fps_pct = f"{(fps_count / batters_faced * 100):.1f}%" if batters_faced > 0 else "0%"
                 
                 s22_pa_count = 0
                 for pa_id, group in data.groupby('PA_ID'):
@@ -548,8 +554,8 @@ with tab_dash:
             fig_whiff = create_location_plot(df_whiff, "Whiff")
             fig_damage = create_location_plot(df_damage, "Damage")
             
-            # 4 Columns side-by-side for Dashboard
-            col_loc1, col_loc2, col_loc3, col_loc4 = st.columns(4)
+            # Tightly spaced 4 columns for Dashboard
+            col_loc1, col_loc2, col_loc3, col_loc4 = st.columns(4, gap="small")
             with col_loc1: st.plotly_chart(fig_pre2k, use_container_width=True)
             with col_loc2: st.plotly_chart(fig_2k, use_container_width=True)
             with col_loc3: st.plotly_chart(fig_whiff, use_container_width=True)
