@@ -21,7 +21,7 @@ PITCH_DICT = {
     "Sinker": ("SI", WHITE, BLACK),
     "TwoSeamFastball": ("SI", WHITE, BLACK),
     "Slider": ("SL", "#FFD700", BLACK), # Yellow
-    "ChangeUp": ("CH", "#0047AB", WHITE), # Cobalt Blue for better contrast
+    "ChangeUp": ("CH", "#0047AB", WHITE), # Cobalt Blue
     "Splitter": ("SPL", "#0047AB", WHITE),
     "Curveball": ("CB", BLACK, WHITE),
     "Knuckleball": ("KB", "#FFC0CB", BLACK), # Pink
@@ -56,26 +56,30 @@ st.markdown(f"""
             color: {BLACK};
         }}
         .styled-table thead tr {{
-            background-color: {OMAHA_RED};
-            color: {WHITE};
+            background-color: {BLACK};
+            border-bottom: 3px solid {OMAHA_RED};
             text-align: center;
             font-weight: bold;
             letter-spacing: 1px;
         }}
-        .styled-table th, .styled-table td {{
+        .styled-table th {{
+            padding: 14px 18px;
+            border: 1px solid #333;
+            text-align: center;
+        }}
+        .styled-table td {{
             padding: 14px 18px;
             border: 1px solid #ddd;
             text-align: center;
         }}
+        .header-red {{ color: {OMAHA_RED}; }}
+        .header-white {{ color: {WHITE}; }}
+        
         .splits-table tbody tr:nth-of-type(even) {{
             background-color: {LIGHT_GRAY};
         }}
         .splits-table tbody tr:last-of-type {{
             border-bottom: 3px solid {OMAHA_RED};
-        }}
-        .arsenal-table tbody tr {{
-            border-bottom: 1px solid #ddd;
-            font-weight: bold;
         }}
         .download-btn {{
             display: inline-block;
@@ -130,7 +134,9 @@ def generate_html_report(date_str, pitcher, splits_html, arsenal_html):
             h3 {{ text-transform: uppercase; font-size: 18px; margin-top: 30px; border-left: 5px solid {OMAHA_RED}; padding-left: 10px; }}
             table {{ width: 100%; border-collapse: collapse; margin-bottom: 20px; text-align: center; font-size: 14px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }}
             th, td {{ border: 1px solid #ddd; padding: 12px; }}
-            th {{ background-color: {OMAHA_RED}; color: white; text-transform: uppercase; }}
+            th {{ background-color: {BLACK}; border-bottom: 3px solid {OMAHA_RED}; }}
+            .header-red {{ color: {OMAHA_RED}; }}
+            .header-white {{ color: {WHITE}; }}
             .splits-table tr:nth-child(even) {{ background-color: {LIGHT_GRAY}; }}
         </style>
     </head>
@@ -155,12 +161,12 @@ def generate_html_report(date_str, pitcher, splits_html, arsenal_html):
 col1, col2, col3 = st.columns([1, 4, 1])
 with col1:
     if os.path.exists("Logo.png"):
-        st.image("Logo.png", use_column_width=True)
+        st.image("Logo.png", width=150)
 with col2:
     st.markdown(f"<h1 style='text-align: center; color: {OMAHA_RED}; font-weight: 800; letter-spacing: 2px; margin-top: 10px;'>GASOLINE ALLEY REPORTING</h1>", unsafe_allow_html=True)
 with col3:
     if os.path.exists("Logo.png"):
-        st.image("Logo.png", use_column_width=True)
+        st.image("Logo.png", width=150)
 
 st.markdown("<hr style='border: 1px solid #ddd;'>", unsafe_allow_html=True)
 
@@ -233,6 +239,7 @@ with tab_dash:
             # --- SPLITS TABLE CALCS ---
             def calc_splits(data, name):
                 if data.empty:
+                    # Formatted as a single string line without indents to prevent markdown code-block rendering
                     return f"<tr><td><b>{name}</b></td><td>0</td><td>0</td><td>0</td><td>0</td><td>0</td><td>0%</td><td>0%</td></tr>"
                 
                 data['PA_ID'] = data['Inning'].astype(str) + "_" + data['PAofInning'].astype(str)
@@ -260,27 +267,30 @@ with tab_dash:
                 calc_splits(df[df['BatterSide'] == 'Right'], "Vs. RHH"),
                 calc_splits(df[df['BatterSide'] == 'Left'], "Vs. LHH")
             ]
+            splits_html_body = "".join(splits_rows)
             
-            splits_html_body = "\n".join(splits_rows)
+            # Flush left HTML to avoid markdown formatting interference
             splits_html_full = f"""
-            <table class="styled-table splits-table">
-                <thead>
-                    <tr>
-                        <th>Split</th>
-                        <th>Batters Faced</th>
-                        <th>Pitches</th>
-                        <th>K</th>
-                        <th>Free</th>
-                        <th>H</th>
-                        <th>FPS %</th>
-                        <th>S22 %</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {splits_html_body}
-                </tbody>
-            </table>
-            """
+<div style="overflow-x: auto;">
+<table class="styled-table splits-table">
+<thead>
+<tr>
+<th><span class="header-red">SPLIT</span></th>
+<th><span class="header-white">BATTERS FACED</span></th>
+<th><span class="header-white">PITCHES</span></th>
+<th><span class="header-white">K</span></th>
+<th><span class="header-white">FREE</span></th>
+<th><span class="header-white">H</span></th>
+<th><span class="header-white">FPS %</span></th>
+<th><span class="header-white">S22 %</span></th>
+</tr>
+</thead>
+<tbody>
+{splits_html_body}
+</tbody>
+</table>
+</div>
+"""
             st.markdown(splits_html_full, unsafe_allow_html=True)
             
             # --- ARSENAL PERFORMANCE TABLE CALCS ---
@@ -298,7 +308,6 @@ with tab_dash:
                     
                     usage = f"{(count / total_pitches * 100):.1f}%"
                     
-                    # Fix: PlateLocSide and PlateLocHeight
                     if 'PlateLocSide' in pt_df.columns and 'PlateLocHeight' in pt_df.columns:
                         in_zone = pt_df[(pt_df['PlateLocSide'] >= -0.8) & (pt_df['PlateLocSide'] <= 0.8) & 
                                         (pt_df['PlateLocHeight'] >= 1.575) & (pt_df['PlateLocHeight'] <= 3.575)]
@@ -320,43 +329,34 @@ with tab_dash:
                     ivb = f"{pt_df['InducedVertBreak'].mean():.1f}" if 'InducedVertBreak' in pt_df.columns else "-"
                     vaa = f"{pt_df['VertApprAngle'].mean():.1f}" if 'VertApprAngle' in pt_df.columns else "-"
                     
-                    row_html = f"""
-                    <tr style="background-color: {bg_color}; color: {text_color}; border-bottom: 2px solid {WHITE};">
-                        <td>{abbr}</td>
-                        <td>{usage}</td>
-                        <td>{zone_pct}</td>
-                        <td>{whiff_pct}</td>
-                        <td>{velo_str}</td>
-                        <td>{spin_str}</td>
-                        <td>{hb}</td>
-                        <td>{ivb}</td>
-                        <td>{vaa}</td>
-                    </tr>
-                    """
+                    # Single line HTML to prevent markdown parser bugs
+                    row_html = f'<tr style="background-color: {bg_color}; color: {text_color}; border-bottom: 2px solid #FFFFFF;"><td><b>{abbr}</b></td><td>{usage}</td><td>{zone_pct}</td><td>{whiff_pct}</td><td>{velo_str}</td><td>{spin_str}</td><td>{hb}</td><td>{ivb}</td><td>{vaa}</td></tr>'
                     arsenal_rows.append(row_html)
             
-            arsenal_html_body = "\n".join(arsenal_rows) if arsenal_rows else "<tr><td colspan='9'>No Pitch Data Available</td></tr>"
+            arsenal_html_body = "".join(arsenal_rows) if arsenal_rows else "<tr><td colspan='9'>No Pitch Data Available</td></tr>"
             
             arsenal_html_full = f"""
-            <table class="styled-table arsenal-table">
-                <thead>
-                    <tr>
-                        <th>Pitch Type</th>
-                        <th>Usage %</th>
-                        <th>Zone %</th>
-                        <th>Whiff %</th>
-                        <th>Velo</th>
-                        <th>Spin Rate</th>
-                        <th>HB</th>
-                        <th>IVB</th>
-                        <th>VAA</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {arsenal_html_body}
-                </tbody>
-            </table>
-            """
+<div style="overflow-x: auto;">
+<table class="styled-table arsenal-table">
+<thead>
+<tr>
+<th><span class="header-red">PITCH TYPE</span></th>
+<th><span class="header-white">USAGE %</span></th>
+<th><span class="header-white">ZONE %</span></th>
+<th><span class="header-white">WHIFF %</span></th>
+<th><span class="header-white">VELO</span></th>
+<th><span class="header-white">SPIN RATE</span></th>
+<th><span class="header-white">HB</span></th>
+<th><span class="header-white">IVB</span></th>
+<th><span class="header-white">VAA</span></th>
+</tr>
+</thead>
+<tbody>
+{arsenal_html_body}
+</tbody>
+</table>
+</div>
+"""
             st.markdown(arsenal_html_full, unsafe_allow_html=True)
             
             # --- PDF / PRINT EXPORT ---
