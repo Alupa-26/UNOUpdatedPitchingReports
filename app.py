@@ -35,7 +35,7 @@ UPLOAD_DIR = "uploads"
 if not os.path.exists(UPLOAD_DIR):
     os.makedirs(UPLOAD_DIR)
 
-# --- CUSTOM CSS FOR PROFESSIONAL MINIMALIST STYLING ---
+# --- CUSTOM CSS FOR DASHBOARD ---
 st.markdown(f"""
     <style>
         .report-header {{
@@ -149,61 +149,64 @@ def format_val(val, decimals=1):
 def generate_html_report(date_str, pitcher, splits_html, arsenal_html, movement_plot_html, 
                          plot_pre2k, plot_2k, plot_whiff, plot_damage):
     logo_b64 = get_base64_image("Logo.png")
-    img_tag = f'<img src="data:image/png;base64,{logo_b64}" style="height: 60px;">' if logo_b64 else ''
+    img_tag = f'<img src="data:image/png;base64,{logo_b64}" style="height: 50px;">' if logo_b64 else ''
     
+    # HTML formatted to tightly fit onto a single portrait PDF page with a global border
     html = f"""
     <!DOCTYPE html>
     <html>
     <head>
         <style>
-            body {{ font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; margin: 40px; color: {BLACK}; }}
-            .header-container {{ display: flex; justify-content: space-between; align-items: center; border-bottom: 3px solid {OMAHA_RED}; padding-bottom: 15px; margin-bottom: 30px; }}
-            h2 {{ text-align: center; margin: 0; font-size: 24px; text-transform: uppercase; letter-spacing: 1px; }}
-            .section-title {{ text-align: center; text-transform: uppercase; font-size: 18px; margin-top: 30px; margin-bottom: 10px; font-weight: bold; }}
-            table {{ width: 100%; border-collapse: collapse; margin-bottom: 20px; text-align: center; font-size: 14px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }}
-            th, td {{ border: 1px solid #ddd; padding: 12px; }}
+            body {{ font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; margin: 20px; padding: 0; color: {BLACK}; background-color: {WHITE}; }}
+            .page-border {{ border: 4px solid {BLACK}; padding: 25px; box-sizing: border-box; }}
+            .header-container {{ display: flex; justify-content: space-between; align-items: center; border-bottom: 3px solid {OMAHA_RED}; padding-bottom: 10px; margin-bottom: 15px; }}
+            h2 {{ text-align: center; margin: 0; font-size: 20px; text-transform: uppercase; letter-spacing: 1px; }}
+            .section-title {{ text-align: center; text-transform: uppercase; font-size: 16px; margin-top: 15px; margin-bottom: 5px; font-weight: bold; }}
+            table {{ width: 100%; border-collapse: collapse; margin-bottom: 15px; text-align: center; font-size: 12px; }}
+            th, td {{ border: 1px solid #ddd; padding: 8px; }}
             th {{ background-color: {BLACK}; border-bottom: 3px solid {OMAHA_RED}; }}
             .header-red {{ color: {OMAHA_RED}; }}
             .header-white {{ color: {WHITE}; }}
             .splits-table tr:nth-child(even) {{ background-color: {LIGHT_GRAY}; }}
-            .plot-container {{ display: flex; justify-content: center; margin-top: 20px; }}
+            .plot-container {{ display: flex; justify-content: center; margin-top: 10px; }}
             .grid-table {{ border: none; box-shadow: none; width: 100%; margin-bottom: 5px; }}
-            .grid-table td {{ border: none; padding: 5px; text-align: center; }}
-            .pitcher-view-text {{ text-align: center; color: #A9A9A9; font-size: 12px; font-style: italic; margin-top: 0px; }}
+            .grid-table td {{ border: none; padding: 2px; text-align: center; vertical-align: middle; }}
+            .pitcher-view-text {{ text-align: center; color: #A9A9A9; font-size: 11px; font-style: italic; margin-top: 0px; }}
+            @media print {{
+                @page {{ margin: 10mm; }}
+            }}
         </style>
     </head>
     <body>
-        <div class="header-container">
-            <div>{img_tag}</div>
-            <h2>{date_str} {pitcher} Post Outing Report</h2>
-            <div>{img_tag}</div>
+        <div class="page-border">
+            <div class="header-container">
+                <div>{img_tag}</div>
+                <h2>{date_str} {pitcher} Post Outing Report</h2>
+                <div>{img_tag}</div>
+            </div>
+            
+            <div class="section-title">SPLITS PERFORMANCE</div>
+            {splits_html}
+            
+            <div class="section-title">ARSENAL PERFORMANCE</div>
+            {arsenal_html}
+            
+            <div class="section-title">PITCH MOVEMENT PLOT</div>
+            <div class="plot-container">
+                {movement_plot_html}
+            </div>
+            
+            <div class="section-title">PITCH LOCATION PLOTS</div>
+            <table class="grid-table">
+                <tr>
+                    <td>{plot_pre2k}</td>
+                    <td>{plot_2k}</td>
+                    <td>{plot_whiff}</td>
+                    <td>{plot_damage}</td>
+                </tr>
+            </table>
+            <div class="pitcher-view-text">*All location plots are displayed from a pitcher's view.</div>
         </div>
-        
-        <div class="section-title">SPLITS PERFORMANCE</div>
-        {splits_html}
-        
-        <div class="section-title">ARSENAL PERFORMANCE</div>
-        {arsenal_html}
-        
-        <div class="section-title">PITCH MOVEMENT PLOT</div>
-        <div class="plot-container">
-            {movement_plot_html}
-        </div>
-        
-        <div style="page-break-before: always;"></div>
-        
-        <div class="section-title">PITCH LOCATION PLOTS</div>
-        <table class="grid-table">
-            <tr>
-                <td>{plot_pre2k}</td>
-                <td>{plot_2k}</td>
-            </tr>
-            <tr>
-                <td>{plot_whiff}</td>
-                <td>{plot_damage}</td>
-            </tr>
-        </table>
-        <div class="pitcher-view-text">*All location plots are displayed from a pitcher's view.</div>
     </body>
     </html>
     """
@@ -242,7 +245,7 @@ def create_location_plot(plot_df, title):
                 mode='markers',
                 name=abbr,
                 marker=dict(
-                    size=10,
+                    size=8,
                     color=bg_color,
                     line=dict(width=1, color=BLACK)
                 ),
@@ -251,16 +254,20 @@ def create_location_plot(plot_df, title):
             ))
 
     fig.update_layout(
-        title=dict(text=title, x=0.5, font=dict(size=18, color=BLACK, family="Helvetica Neue, Arial, sans-serif")),
-        # Reverse autorange sets standard Umpire X coordinates to a Pitcher's View (Left is Right, Right is Left)
-        xaxis=dict(title="PlateLocSide", range=[2.5, -2.5], zeroline=False, gridcolor=LIGHT_GRAY, showticklabels=False),
-        yaxis=dict(title="PlateLocHeight", range=[0, 5], zeroline=False, gridcolor=LIGHT_GRAY, showticklabels=False),
-        width=450, height=450,
+        title=dict(text=title, x=0.5, font=dict(size=14, color=BLACK, family="Helvetica Neue, Arial, sans-serif")),
+        xaxis=dict(title="PlateLocSide", range=[2.5, -2.5], zeroline=False, showticklabels=False),
+        yaxis=dict(title="PlateLocHeight", range=[0, 5], zeroline=False, showticklabels=False),
+        width=180, height=180,  # Sized specifically to fit 4 side-by-side in PDF
         plot_bgcolor=WHITE,
         showlegend=False,
-        margin=dict(l=20, r=20, t=50, b=20),
+        margin=dict(l=10, r=10, t=30, b=10),
         paper_bgcolor='rgba(0,0,0,0)'
     )
+    
+    # Adds the plot border
+    fig.update_xaxes(showline=True, linewidth=2, linecolor=BLACK, mirror=True)
+    fig.update_yaxes(showline=True, linewidth=2, linecolor=BLACK, mirror=True)
+    
     return fig
 
 # --- UI HEADER ---
@@ -499,14 +506,18 @@ with tab_dash:
                     ))
 
             fig_mov.update_layout(
-                xaxis=dict(title="Horizontal Break (in)", range=[-30, 30], zeroline=False, gridcolor=LIGHT_GRAY),
-                yaxis=dict(title="Induced Vertical Break (in)", range=[-30, 30], zeroline=False, gridcolor=LIGHT_GRAY),
-                width=600, height=600,
+                xaxis=dict(title="Horizontal Break (in)", range=[-30, 30], zeroline=False),
+                yaxis=dict(title="Induced Vertical Break (in)", range=[-30, 30], zeroline=False),
+                width=400, height=400,
                 plot_bgcolor=WHITE,
                 legend_title_text='Pitch Type',
-                margin=dict(l=40, r=40, t=40, b=40),
+                margin=dict(l=40, r=40, t=20, b=40),
                 paper_bgcolor='rgba(0,0,0,0)'
             )
+            
+            # Adds the plot border
+            fig_mov.update_xaxes(showline=True, linewidth=2, linecolor=BLACK, mirror=True)
+            fig_mov.update_yaxes(showline=True, linewidth=2, linecolor=BLACK, mirror=True)
 
             col_plot1, col_plot2, col_plot3 = st.columns([1, 2, 1])
             with col_plot2:
@@ -524,7 +535,6 @@ with tab_dash:
             df_2k = df[df['Strikes'] == 2]
             df_whiff = df[df['PitchCall'] == 'StrikeSwinging']
             
-            # Damage criteria: Hit result + ExitSpeed > 96 + Angle between 15 and 25
             damage_results = ['Single', 'Double', 'Triple', 'HomeRun']
             df_damage = df[
                 (df['PlayResult'].isin(damage_results)) & 
@@ -538,13 +548,12 @@ with tab_dash:
             fig_whiff = create_location_plot(df_whiff, "Whiff")
             fig_damage = create_location_plot(df_damage, "Damage")
             
-            col_loc1, col_loc2 = st.columns(2)
-            with col_loc1:
-                st.plotly_chart(fig_pre2k, use_container_width=True)
-                st.plotly_chart(fig_whiff, use_container_width=True)
-            with col_loc2:
-                st.plotly_chart(fig_2k, use_container_width=True)
-                st.plotly_chart(fig_damage, use_container_width=True)
+            # 4 Columns side-by-side for Dashboard
+            col_loc1, col_loc2, col_loc3, col_loc4 = st.columns(4)
+            with col_loc1: st.plotly_chart(fig_pre2k, use_container_width=True)
+            with col_loc2: st.plotly_chart(fig_2k, use_container_width=True)
+            with col_loc3: st.plotly_chart(fig_whiff, use_container_width=True)
+            with col_loc4: st.plotly_chart(fig_damage, use_container_width=True)
                 
             st.markdown("<div class='pitcher-view-text'>*All location plots are displayed from a pitcher's view.</div>", unsafe_allow_html=True)
             
