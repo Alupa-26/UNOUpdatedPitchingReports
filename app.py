@@ -1,8 +1,10 @@
 import streamlit as st
 import pandas as pd
+import numpy as np
 import os
 import base64
 from datetime import datetime
+import plotly.graph_objects as go
 
 # --- CONFIGURATION & SETUP ---
 st.set_page_config(page_title="Gasoline Alley Reporting", layout="wide")
@@ -20,13 +22,13 @@ PITCH_DICT = {
     "OneSeamFastball": ("FB", OMAHA_RED, WHITE),
     "Sinker": ("SI", WHITE, BLACK),
     "TwoSeamFastball": ("SI", WHITE, BLACK),
-    "Slider": ("SL", "#FFD700", BLACK), # Yellow
-    "ChangeUp": ("CH", "#0047AB", WHITE), # Cobalt Blue
+    "Slider": ("SL", "#FFD700", BLACK), 
+    "ChangeUp": ("CH", "#0047AB", WHITE), 
     "Splitter": ("SPL", "#0047AB", WHITE),
     "Curveball": ("CB", BLACK, WHITE),
-    "Knuckleball": ("KB", "#FFC0CB", BLACK), # Pink
-    "Cutter": ("CT", "#696969", WHITE), # Dim Gray
-    "Sweeper": ("SW", "#228B22", WHITE) # Forest Green
+    "Knuckleball": ("KB", "#FFC0CB", BLACK), 
+    "Cutter": ("CT", "#696969", WHITE), 
+    "Sweeper": ("SW", "#228B22", WHITE) 
 }
 
 UPLOAD_DIR = "uploads"
@@ -45,10 +47,20 @@ st.markdown(f"""
             text-transform: uppercase;
             letter-spacing: 1.5px;
         }}
+        .section-title {{
+            text-align: center;
+            font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+            color: {BLACK};
+            margin-top: 30px;
+            margin-bottom: 10px;
+            font-size: 20px;
+            font-weight: bold;
+            text-transform: uppercase;
+        }}
         .styled-table {{
             width: 100%;
             border-collapse: collapse;
-            margin: 25px 0;
+            margin: 10px 0 25px 0;
             font-size: 16px;
             font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
             box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
@@ -119,7 +131,14 @@ def get_base64_image(image_path):
             return base64.b64encode(img_file.read()).decode()
     return None
 
-def generate_html_report(date_str, pitcher, splits_html, arsenal_html):
+def format_val(val, decimals=1):
+    try:
+        if pd.isna(val): return "-"
+        return f"{float(val):.{decimals}f}"
+    except:
+        return "-"
+
+def generate_html_report(date_str, pitcher, splits_html, arsenal_html, movement_plot_html):
     logo_b64 = get_base64_image("Logo.png")
     img_tag = f'<img src="data:image/png;base64,{logo_b64}" style="height: 60px;">' if logo_b64 else ''
     
@@ -131,13 +150,14 @@ def generate_html_report(date_str, pitcher, splits_html, arsenal_html):
             body {{ font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; margin: 40px; color: {BLACK}; }}
             .header-container {{ display: flex; justify-content: space-between; align-items: center; border-bottom: 3px solid {OMAHA_RED}; padding-bottom: 15px; margin-bottom: 30px; }}
             h2 {{ text-align: center; margin: 0; font-size: 24px; text-transform: uppercase; letter-spacing: 1px; }}
-            h3 {{ text-transform: uppercase; font-size: 18px; margin-top: 30px; border-left: 5px solid {OMAHA_RED}; padding-left: 10px; }}
+            .section-title {{ text-align: center; text-transform: uppercase; font-size: 18px; margin-top: 30px; margin-bottom: 10px; }}
             table {{ width: 100%; border-collapse: collapse; margin-bottom: 20px; text-align: center; font-size: 14px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }}
             th, td {{ border: 1px solid #ddd; padding: 12px; }}
             th {{ background-color: {BLACK}; border-bottom: 3px solid {OMAHA_RED}; }}
             .header-red {{ color: {OMAHA_RED}; }}
             .header-white {{ color: {WHITE}; }}
             .splits-table tr:nth-child(even) {{ background-color: {LIGHT_GRAY}; }}
+            .plot-container {{ display: flex; justify-content: center; margin-top: 20px; }}
         </style>
     </head>
     <body>
@@ -147,11 +167,16 @@ def generate_html_report(date_str, pitcher, splits_html, arsenal_html):
             <div>{img_tag}</div>
         </div>
         
-        <h3>Splits Performance</h3>
+        <div class="section-title">SPLITS PERFORMANCE</div>
         {splits_html}
         
-        <h3>Arsenal Performance</h3>
+        <div class="section-title">ARSENAL PERFORMANCE</div>
         {arsenal_html}
+        
+        <div class="section-title">PITCH MOVEMENT PLOT</div>
+        <div class="plot-container">
+            {movement_plot_html}
+        </div>
     </body>
     </html>
     """
@@ -237,9 +262,10 @@ with tab_dash:
             st.markdown(f"<h2 class='report-header'>{title_str}</h2>", unsafe_allow_html=True)
             
             # --- SPLITS TABLE CALCS ---
+            st.markdown("<div class='section-title'>SPLITS PERFORMANCE</div>", unsafe_allow_html=True)
+            
             def calc_splits(data, name):
                 if data.empty:
-                    # Formatted as a single string line without indents to prevent markdown code-block rendering
                     return f"<tr><td><b>{name}</b></td><td>0</td><td>0</td><td>0</td><td>0</td><td>0</td><td>0%</td><td>0%</td></tr>"
                 
                 data['PA_ID'] = data['Inning'].astype(str) + "_" + data['PAofInning'].astype(str)
@@ -269,7 +295,6 @@ with tab_dash:
             ]
             splits_html_body = "".join(splits_rows)
             
-            # Flush left HTML to avoid markdown formatting interference
             splits_html_full = f"""
 <div style="overflow-x: auto;">
 <table class="styled-table splits-table">
@@ -294,6 +319,8 @@ with tab_dash:
             st.markdown(splits_html_full, unsafe_allow_html=True)
             
             # --- ARSENAL PERFORMANCE TABLE CALCS ---
+            st.markdown("<div class='section-title'>ARSENAL PERFORMANCE</div>", unsafe_allow_html=True)
+            
             arsenal_rows = []
             if 'TaggedPitchType' in df.columns:
                 pitch_types = df['TaggedPitchType'].dropna().unique()
@@ -329,8 +356,7 @@ with tab_dash:
                     ivb = f"{pt_df['InducedVertBreak'].mean():.1f}" if 'InducedVertBreak' in pt_df.columns else "-"
                     vaa = f"{pt_df['VertApprAngle'].mean():.1f}" if 'VertApprAngle' in pt_df.columns else "-"
                     
-                    # Single line HTML to prevent markdown parser bugs
-                    row_html = f'<tr style="background-color: {bg_color}; color: {text_color}; border-bottom: 2px solid #FFFFFF;"><td><b>{abbr}</b></td><td>{usage}</td><td>{zone_pct}</td><td>{whiff_pct}</td><td>{velo_str}</td><td>{spin_str}</td><td>{hb}</td><td>{ivb}</td><td>{vaa}</td></tr>'
+                    row_html = f'<tr style="background-color: {bg_color}; color: {text_color}; border-bottom: 2px solid #FFFFFF;"><td><b>{abbr}</b></td><td>{usage}</td><td>{zone_pct}</td><td>{whiff_pct}</td><td>{velo_str}</td><td>{spin_str}</td><td>{ivb}</td><td>{hb}</td><td>{vaa}</td></tr>'
                     arsenal_rows.append(row_html)
             
             arsenal_html_body = "".join(arsenal_rows) if arsenal_rows else "<tr><td colspan='9'>No Pitch Data Available</td></tr>"
@@ -346,8 +372,8 @@ with tab_dash:
 <th><span class="header-white">WHIFF %</span></th>
 <th><span class="header-white">VELO</span></th>
 <th><span class="header-white">SPIN RATE</span></th>
-<th><span class="header-white">HB</span></th>
 <th><span class="header-white">IVB</span></th>
+<th><span class="header-white">HB</span></th>
 <th><span class="header-white">VAA</span></th>
 </tr>
 </thead>
@@ -359,10 +385,62 @@ with tab_dash:
 """
             st.markdown(arsenal_html_full, unsafe_allow_html=True)
             
+            # --- MOVEMENT PLOT (PLOTLY) ---
+            st.markdown("<div class='section-title'>PITCH MOVEMENT PLOT</div>", unsafe_allow_html=True)
+            
+            fig = go.Figure()
+            fig.add_hline(y=0, line_dash="dash", line_color=BLACK, opacity=0.4)
+            fig.add_vline(x=0, line_dash="dash", line_color=BLACK, opacity=0.4)
+
+            if 'TaggedPitchType' in df.columns and 'HorzBreak' in df.columns and 'InducedVertBreak' in df.columns:
+                for pt in df['TaggedPitchType'].dropna().unique():
+                    pt_df = df[df['TaggedPitchType'] == pt].copy()
+                    if pt_df.empty: continue
+                    
+                    abbr, bg_color, text_color = PITCH_DICT.get(pt, (pt, WHITE, BLACK))
+                    
+                    hover_text = pt_df.apply(lambda row: 
+                        f"<b>{abbr}</b><br>"
+                        f"Velo: {format_val(row.get('RelSpeed'))} mph<br>"
+                        f"IVB: {format_val(row.get('InducedVertBreak'))} in<br>"
+                        f"HB: {format_val(row.get('HorzBreak'))} in<br>"
+                        f"VAA: {format_val(row.get('VertApprAngle'))}°<br>"
+                        f"Call: {row.get('PitchCall', '-')}", axis=1)
+                    
+                    fig.add_trace(go.Scatter(
+                        x=pt_df['HorzBreak'],
+                        y=pt_df['InducedVertBreak'],
+                        mode='markers',
+                        name=abbr,
+                        marker=dict(
+                            size=10,
+                            color=bg_color,
+                            line=dict(width=1, color=BLACK)
+                        ),
+                        text=hover_text,
+                        hoverinfo='text'
+                    ))
+
+            fig.update_layout(
+                xaxis=dict(title="Horizontal Break (in)", range=[-30, 30], zeroline=False, gridcolor=LIGHT_GRAY),
+                yaxis=dict(title="Induced Vertical Break (in)", range=[-30, 30], zeroline=False, gridcolor=LIGHT_GRAY),
+                width=600, height=600,
+                plot_bgcolor=WHITE,
+                legend_title_text='Pitch Type',
+                margin=dict(l=40, r=40, t=40, b=40),
+                paper_bgcolor='rgba(0,0,0,0)'
+            )
+
+            col_plot1, col_plot2, col_plot3 = st.columns([1, 2, 1])
+            with col_plot2:
+                st.plotly_chart(fig, use_container_width=True)
+
+            plotly_html = fig.to_html(full_html=False, include_plotlyjs='cdn')
+            
             # --- PDF / PRINT EXPORT ---
             st.markdown("<br>", unsafe_allow_html=True)
             
-            report_html = generate_html_report(date_str, selected_pitcher, splits_html_full, arsenal_html_full)
+            report_html = generate_html_report(date_str, selected_pitcher, splits_html_full, arsenal_html_full, plotly_html)
             b64_html = base64.b64encode(report_html.encode('utf-8')).decode()
             
             col_btn1, col_btn2, col_btn3 = st.columns([1, 2, 1])
