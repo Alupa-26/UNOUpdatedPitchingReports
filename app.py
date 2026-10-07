@@ -263,7 +263,7 @@ def create_location_plot(plot_df, title):
         title=dict(text=title, x=0.5, font=dict(size=14, color=BLACK, family="Helvetica Neue, Arial, sans-serif")),
         xaxis=dict(title="", range=[-2.5, 2.5], zeroline=False, showticklabels=False),
         yaxis=dict(title="", range=[-0.2, 5.0], zeroline=False, showticklabels=False),
-        width=160, height=280, 
+        width=200, height=320,  # Taller and wider
         plot_bgcolor=WHITE,
         showlegend=False,
         margin=dict(l=5, r=5, t=30, b=5), 
@@ -370,7 +370,7 @@ with tab_dash:
                 free = len(data[(data['PitchCall'] == 'HitByPitch') | (data['KorBB'] == 'Walk')])
                 hits = len(data[data['PlayResult'].isin(['Single', 'Double', 'Triple', 'HomeRun'])])
                 
-                # Updated FPS% Logic
+                # FPS% Logic:
                 fps_count = len(data[(data['PitchofPA'] == 1) & (data['PitchCall'].isin(['StrikeCalled', 'StrikeSwinging', 'InPlay', 'FoulBallFieldable', 'FoulBallNotFieldable']))])
                 fps_pct = f"{(fps_count / batters_faced * 100):.0f}% ({fps_count}/{batters_faced})" if batters_faced > 0 else "0% (0/0)"
                 
@@ -514,7 +514,7 @@ with tab_dash:
             fig_mov.update_layout(
                 xaxis=dict(title="Horizontal Break (in)", range=[-30, 30], zeroline=False),
                 yaxis=dict(title="Induced Vertical Break (in)", range=[-30, 30], zeroline=False),
-                width=400, height=400,
+                width=350, height=350, # Tightened height and width to ensure a perfect square
                 plot_bgcolor=WHITE,
                 legend_title_text='Pitch Type',
                 margin=dict(l=40, r=40, t=20, b=40),
