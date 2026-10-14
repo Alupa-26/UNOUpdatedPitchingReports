@@ -137,6 +137,7 @@ def generate_html_report(date_str, pitcher, splits_html, arsenal_html, movement_
                 @page {{ margin: 10mm; }}
                 .no-print {{ display: none !important; }}
                 .page-2-wrapper {{ background-color: #0B0F19 !important; }}
+                .page2-title {{ background: none !important; -webkit-text-fill-color: #ffffff !important; color: #ffffff !important; }}
                 .glass-panel {{ background-color: #1e293b !important; border: 1px solid #334155 !important; box-shadow: none !important; }}
                 .metric-box {{ background-color: #1e293b !important; }}
                 .goal-pass {{ border-left: 4px solid #22c55e !important; }}
@@ -197,7 +198,7 @@ def generate_html_report(date_str, pitcher, splits_html, arsenal_html, movement_
                     </div>
                     
                     <div class="text-center">
-                        <h1 class="font-display text-5xl md:text-7xl font-bold tracking-widest text-transparent bg-clip-text bg-gradient-to-r from-gray-100 to-gray-500 uppercase leading-none">Gasoline Alley</h1>
+                        <h1 class="page2-title font-display text-5xl md:text-7xl font-bold tracking-widest text-transparent bg-clip-text bg-gradient-to-r from-gray-100 to-gray-500 uppercase leading-none">Gasoline Alley</h1>
                         <h2 class="font-display text-2xl md:text-3xl tracking-[0.2em] text-red-500 mt-1 uppercase">Team Report</h2>
                     </div>
                 </div>
