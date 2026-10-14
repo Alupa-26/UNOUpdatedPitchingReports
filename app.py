@@ -256,10 +256,10 @@ def generate_html_report(date_str, pitcher, splits_html, arsenal_html, movement_
                             <div class="text-3xl font-bold" id="valChasePct">--%</div>
                             <span class="text-xs mt-1 font-semibold" id="goalChasePct">Goal: &ge; 25%</span>
                         </div>
-                        <div class="glass-panel metric-box" id="boxFreebies">
-                            <span class="text-xs text-gray-400 uppercase tracking-wider mb-1">Freebies</span>
-                            <div class="text-3xl font-bold" id="valFreebies">--</div>
-                            <span class="text-xs mt-1 font-semibold" id="goalFreebies">Goal: &le; 5</span>
+                        <div class="glass-panel metric-box" id="boxKbbRto">
+                            <span class="text-xs text-gray-400 uppercase tracking-wider mb-1">K:BB/HBP</span>
+                            <div class="text-3xl font-bold" id="valKbbRto">--</div>
+                            <span class="text-xs mt-1 font-semibold" id="goalKbbRto">Goal: &ge; 3</span>
                         </div>
                         <div class="glass-panel metric-box">
                             <span class="text-xs text-gray-400 uppercase tracking-wider mb-1">Ks</span>
@@ -315,6 +315,7 @@ def generate_html_report(date_str, pitcher, splits_html, arsenal_html, movement_
                                     <th>K</th>
                                     <th>H</th>
                                     <th>EV</th>
+                                    <th>OBP</th>
                                     <th>OPS</th>
                                 </tr>
                             </thead>
@@ -407,7 +408,7 @@ def generate_html_report(date_str, pitcher, splits_html, arsenal_html, movement_
                 if (passStrike) goalsHit++;
                 setGoalStyling('boxStrikePct', 'valStrikePct', 'goalStrikePct', passStrike);
 
-                // 2. FPS % (*60%) - Explicit logic using PitchofPA == 1 and dividing by totalBattersFaced
+                // 2. FPS % (*60%)
                 let fpsStrikes = unoPitches.filter(p => p.PitchofPA == 1 && strikeOutcomes.includes(p.PitchCall)).length;
                 let fpsPct = totalBattersFaced > 0 ? (fpsStrikes / totalBattersFaced) * 100 : 0;
                 document.getElementById('valFpsPct').innerText = fpsPct.toFixed(0) + '%';
@@ -441,12 +442,14 @@ def generate_html_report(date_str, pitcher, splits_html, arsenal_html, movement_
                 if (passChase) goalsHit++;
                 setGoalStyling('boxChasePct', 'valChasePct', 'goalChasePct', passChase);
 
-                // 6. Freebies (*<=5)
-                let freebies = unoPitches.filter(p => p.KorBB === 'Walk' || p.PitchCall === 'HitByPitch').length;
-                document.getElementById('valFreebies').innerText = freebies;
-                let passFreebies = freebies <= 5;
-                if (passFreebies) goalsHit++;
-                setGoalStyling('boxFreebies', 'valFreebies', 'goalFreebies', passFreebies);
+                // 6. K:BB/HBP (*>=3)
+                let walksHbp = unoPitches.filter(p => p.KorBB === 'Walk' || p.PitchCall === 'HitByPitch').length;
+                let ksForRatio = unoPitches.filter(p => p.KorBB === 'Strikeout').length;
+                let kbbRto = walksHbp > 0 ? (ksForRatio / walksHbp) : ksForRatio;
+                document.getElementById('valKbbRto').innerText = kbbRto.toFixed(1);
+                let passKbbRto = kbbRto >= 3;
+                if (passKbbRto) goalsHit++;
+                setGoalStyling('boxKbbRto', 'valKbbRto', 'goalKbbRto', passKbbRto);
 
                 // Ks (Total)
                 let totalKs = unoPitches.filter(p => p.KorBB === 'Strikeout').length;
@@ -531,7 +534,9 @@ def generate_html_report(date_str, pitcher, splits_html, arsenal_html, movement_
                     let avgEV = obj.ev_count > 0 ? (obj.ev_sum / obj.ev_count).toFixed(1) : '0';
                     let obp = obj.pa > 0 ? (obj.obp_num / obj.pa) : 0;
                     let slg = obj.ab > 0 ? (obj.tb / obj.ab) : 0;
-                    let ops = (obp + slg).toFixed(3).replace(/^0+/, '');
+                    
+                    let obpStr = obp.toFixed(3).replace(/^0+/, '');
+                    let opsStr = (obp + slg).toFixed(3).replace(/^0+/, '');
                     
                     return `
                         <tr class="hover:bg-white/5 transition-colors">
@@ -541,7 +546,8 @@ def generate_html_report(date_str, pitcher, splits_html, arsenal_html, movement_
                             <td class="font-mono text-white">${{obj.k}}</td>
                             <td class="font-mono text-white">${{obj.h}}</td>
                             <td class="font-mono text-white">${{avgEV}}</td>
-                            <td class="font-mono text-white">${{ops}}</td>
+                            <td class="font-mono text-white">${{obpStr}}</td>
+                            <td class="font-mono text-white">${{opsStr}}</td>
                         </tr>
                     `;
                 }};
