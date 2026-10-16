@@ -7,6 +7,13 @@ from datetime import datetime
 import plotly.graph_objects as go
 import json
 
+# Optional XGBoost import (uses trained model if bip_out_model.json is in folder, otherwise uses built-in physics fallback)
+try:
+    import xgboost as xgb
+    XGB_AVAILABLE = True
+except ImportError:
+    XGB_AVAILABLE = False
+
 # --- CONFIGURATION & SETUP ---
 st.set_page_config(page_title="Gasoline Alley Reporting", layout="wide")
 
@@ -19,29 +26,195 @@ LIGHT_GRAY = "#F0F0F0"
 # Pitch Mapping & Colors: (Abbreviation, Background, Text)
 PITCH_DICT = {
     "Fastball": ("FB", OMAHA_RED, WHITE),
+    "Four-Seam": ("FB", OMAHA_RED, WHITE),
     "FourSeamFastball": ("FB", OMAHA_RED, WHITE),
     "OneSeamFastball": ("FB", OMAHA_RED, WHITE),
     "Sinker": ("SI", WHITE, BLACK),
     "TwoSeamFastball": ("SI", WHITE, BLACK),
-    "Slider": ("SL", "#FFD700", BLACK), 
-    "ChangeUp": ("CH", "#0047AB", WHITE), 
+    "Slider": ("SL", "#FFD700", BLACK),
+    "ChangeUp": ("CH", "#0047AB", WHITE),
+    "Changeup": ("CH", "#0047AB", WHITE),
     "Splitter": ("SPL", "#0047AB", WHITE),
     "Curveball": ("CB", BLACK, WHITE),
-    "Knuckleball": ("KB", "#FFC0CB", BLACK), 
-    "Cutter": ("CT", "#696969", WHITE), 
-    "Sweeper": ("SW", "#228B22", WHITE) 
+    "Knuckleball": ("KB", "#FFC0CB", BLACK),
+    "Cutter": ("CT", "#696969", WHITE),
+    "Sweeper": ("SW", "#228B22", WHITE)
 }
 
 UPLOAD_DIR = "uploads"
 if not os.path.exists(UPLOAD_DIR):
     os.makedirs(UPLOAD_DIR)
 
+# --- 2026 NCAA BASELINES & OUT+ PERFORMANCE ENGINE ---
+DEFAULT_COUNT_MATRIX = {
+    (0, 0): 0.632, (0, 1): 0.688, (0, 2): 0.765,
+    (1, 0): 0.588, (1, 1): 0.648, (1, 2): 0.732,
+    (2, 0): 0.525, (2, 1): 0.592, (2, 2): 0.685,
+    (3, 0): 0.410, (3, 1): 0.495, (3, 2): 0.605
+}
+
+# Baseline Mean & Standard Deviation of Out Value per pitch by Pitch Type
+DEFAULT_PITCH_NORMS = {
+    "FB":  {"NCAA_Mean": 0.000, "NCAA_Std": 0.025},
+    "SI":  {"NCAA_Mean": 0.002, "NCAA_Std": 0.025},
+    "SL":  {"NCAA_Mean": 0.006, "NCAA_Std": 0.026},
+    "CH":  {"NCAA_Mean": 0.003, "NCAA_Std": 0.026},
+    "SPL": {"NCAA_Mean": 0.005, "NCAA_Std": 0.026},
+    "CB":  {"NCAA_Mean": 0.002, "NCAA_Std": 0.026},
+    "CT":  {"NCAA_Mean": 0.003, "NCAA_Std": 0.025},
+    "SW":  {"NCAA_Mean": 0.006, "NCAA_Std": 0.026},
+    "KB":  {"NCAA_Mean": 0.000, "NCAA_Std": 0.026}
+}
+
+@st.cache_resource
+def load_out_model_artifacts():
+    """Loads exported 9,000-game XGBoost model & baselines if present, or uses built-in 2026 NCAA defaults."""
+    count_matrix = DEFAULT_COUNT_MATRIX.copy()
+    pitch_norms = DEFAULT_PITCH_NORMS.copy()
+    bip_model = None
+
+    if os.path.exists("ncaa_2026_baselines.json"):
+        try:
+            with open("ncaa_2026_baselines.json", "r") as f:
+                data = json.load(f)
+            if "count_matrix" in data:
+                count_matrix = {
+                    (int(k.split("_")[0]), int(k.split("_")[1])): float(v)
+                    for k, v in data["count_matrix"].items()
+                }
+            if "pitch_norms" in data:
+                pitch_norms.update(data["pitch_norms"])
+        except Exception:
+            pass
+
+    if XGB_AVAILABLE and os.path.exists("bip_out_model.json"):
+        try:
+            bip_model = xgb.Booster()
+            bip_model.load_model("bip_out_model.json")
+        except Exception:
+            bip_model = None
+
+    return count_matrix, pitch_norms, bip_model
+
+def estimate_bip_out_prob_fallback(exit_speed, angle):
+    """Physics-based Expected Out Probability when bip_out_model.json is not in folder."""
+    ev = pd.to_numeric(exit_speed, errors='coerce')
+    la = pd.to_numeric(angle, errors='coerce')
+    
+    # Base out probability in college baseball (~67%)
+    prob = np.full(len(ev), 0.67, dtype=float)
+    
+    # Pop-ups and high fly balls
+    prob = np.where(la > 50, 0.98, prob)
+    prob = np.where((la > 38) & (la <= 50) & (ev < 95), 0.93, prob)
+    
+    # Groundballs (< 10 deg)
+    gb_mask = (la < 10)
+    prob = np.where(gb_mask & (ev < 80), 0.86, prob)
+    prob = np.where(gb_mask & (ev >= 80) & (ev < 95), 0.74, prob)
+    prob = np.where(gb_mask & (ev >= 95), 0.58, prob)
+    
+    # Line drives (10 to 24 deg)
+    ld_mask = (la >= 10) & (la <= 24)
+    prob = np.where(ld_mask & (ev < 75), 0.62, prob)
+    prob = np.where(ld_mask & (ev >= 75) & (ev < 92), 0.38, prob)
+    prob = np.where(ld_mask & (ev >= 92), 0.24, prob)
+    
+    # Fly balls / Barrels (24 to 38 deg)
+    fb_mask = (la > 24) & (la <= 38)
+    prob = np.where(fb_mask & (ev < 88), 0.88, prob)
+    prob = np.where(fb_mask & (ev >= 88) & (ev < 98), 0.45, prob)
+    prob = np.where(fb_mask & (ev >= 98), 0.12, prob)
+    
+    return prob
+
+def score_outing_pitches(df):
+    """Scores every pitch in the DataFrame with Pitch_Out_Value and computes Out+ grades."""
+    if df.empty:
+        return df
+    df = df.copy()
+    count_matrix, pitch_norms, bip_model = load_out_model_artifacts()
+
+    balls = pd.to_numeric(df['Balls'], errors='coerce').fillna(0).clip(0, 3).astype(int)
+    strikes = pd.to_numeric(df['Strikes'], errors='coerce').fillna(0).clip(0, 2).astype(int)
+
+    start_tuples = list(zip(balls, strikes))
+    df['xOut_Start'] = [count_matrix.get(c, 0.632) for c in start_tuples]
+
+    next_balls = np.where(
+        df['PitchCall'].isin(['BallCalled', 'BallinDirt', 'BallIntentional']),
+        np.minimum(balls + 1, 3),
+        balls
+    )
+    next_strikes = np.where(
+        df['PitchCall'].isin(['StrikeCalled', 'StrikeSwinging']),
+        np.minimum(strikes + 1, 2),
+        np.where(
+            df['PitchCall'].isin(['FoulBall', 'FoulBallNotFieldable', 'FoulBallFieldable']) & (strikes < 2),
+            strikes + 1,
+            strikes
+        )
+    )
+
+    next_tuples = list(zip(next_balls, next_strikes))
+    df['xOut_End'] = [count_matrix.get(c, 0.632) for c in next_tuples]
+
+    # Terminal strikeout / walk / HBP overrides
+    if 'KorBB' in df.columns:
+        df.loc[df['KorBB'] == 'Strikeout', 'xOut_End'] = 1.0
+        df.loc[df['KorBB'] == 'Walk', 'xOut_End'] = 0.0
+    df.loc[df['PitchCall'] == 'HitByPitch', 'xOut_End'] = 0.0
+
+    # Balls in Play
+    bip_mask = (df['PitchCall'] == 'InPlay')
+    if bip_mask.sum() > 0:
+        has_metrics = (
+            bip_mask &
+            pd.to_numeric(df.get('ExitSpeed'), errors='coerce').notna() &
+            pd.to_numeric(df.get('Angle'), errors='coerce').notna()
+        )
+        if has_metrics.sum() > 0:
+            if bip_model is not None and 'Direction' in df.columns and pd.to_numeric(df['Direction'], errors='coerce').notna().all():
+                X_bip = df.loc[has_metrics, ['ExitSpeed', 'Angle', 'Direction']].apply(pd.to_numeric, errors='coerce')
+                dtest = xgb.DMatrix(X_bip)
+                df.loc[has_metrics, 'xOut_End'] = bip_model.predict(dtest)
+            else:
+                df.loc[has_metrics, 'xOut_End'] = estimate_bip_out_prob_fallback(
+                    df.loc[has_metrics, 'ExitSpeed'],
+                    df.loc[has_metrics, 'Angle']
+                )
+
+        # Fallback for unmeasured balls in play
+        unmeasured = bip_mask & (~has_metrics)
+        if unmeasured.sum() > 0:
+            recorded_out = (
+                (pd.to_numeric(df.get('OutsOnPlay', 0), errors='coerce').fillna(0) >= 1) |
+                (df.get('PlayResult', pd.Series(index=df.index)).isin(['Out', 'Sacrifice', 'FieldersChoice']))
+            )
+            df.loc[unmeasured, 'xOut_End'] = recorded_out.loc[unmeasured].astype(float)
+
+    df['Pitch_Out_Value'] = df['xOut_End'] - df['xOut_Start']
+    return df
+
+def calc_out_plus_grade(pt_df, pt_name, abbr):
+    """Calculates the 100-indexed Out+ Performance Grade for a pitch subset."""
+    if pt_df.empty or 'Pitch_Out_Value' not in pt_df.columns:
+        return np.nan
+    _, pitch_norms, _ = load_out_model_artifacts()
+    norm = pitch_norms.get(pt_name, pitch_norms.get(abbr, {"NCAA_Mean": 0.002, "NCAA_Std": 0.025}))
+    mean_val = pt_df['Pitch_Out_Value'].mean()
+    std_val = norm.get("NCAA_Std", 0.025)
+    if std_val == 0 or pd.isna(std_val):
+        std_val = 0.025
+    out_plus = 100.0 + 10.0 * ((mean_val - norm.get("NCAA_Mean", 0.002)) / std_val)
+    return round(float(out_plus), 1)
+
 # --- HELPER FUNCTIONS ---
 def load_all_data():
     files = [f for f in os.listdir(UPLOAD_DIR) if f.endswith('.csv')]
     df_list = []
     for file in files:
-        tmp = pd.read_csv(os.path.join(UPLOAD_DIR, file))
+        tmp = pd.read_csv(os.path.join(UPLOAD_DIR, file), low_memory=False)
         tmp['SourceFile'] = file
         df_list.append(tmp)
     if df_list:
@@ -580,10 +753,9 @@ def generate_html_report(date_str, pitcher, splits_html, arsenal_html, movement_
                 const offset = circumference - ((goalsHit / totalGoals) * circumference);
                 
                 circle.style.stroke = circleColor;
-                circle.style.strokeDashoffset = offset; // Instant execution to ensure PDF renders correctly without animation wait
+                circle.style.strokeDashoffset = offset;
             }}
 
-            // Inject Python JSON Data into script exactly as expected
             const reportData = {json_data};
             processData(reportData);
         </script>
@@ -750,6 +922,9 @@ with tab_dash:
         if selected_pitcher and selected_dates:
             df = pitcher_df[pitcher_df['Date'].isin(selected_dates)].copy()
             
+            # Score all pitches in the selected outing(s) with the Out+ Performance Model
+            df = score_outing_pitches(df)
+            
             date_str = ", ".join(selected_dates) if len(selected_dates) <= 2 else f"{selected_dates[0]} to {selected_dates[-1]}"
             title_str = f"{date_str} {selected_pitcher} Post Outing Report"
             
@@ -762,6 +937,7 @@ with tab_dash:
                 if data.empty:
                     return f"<tr><td><b>{name}</b></td><td>0</td><td>0</td><td>0</td><td>0</td><td>0</td><td>0% (0/0)</td><td>0%</td></tr>"
                 
+                data = data.copy()
                 data['PA_ID'] = data['Inning'].astype(str) + "_" + data['PAofInning'].astype(str)
                 batters_faced = data['PA_ID'].nunique()
                 
@@ -811,10 +987,13 @@ with tab_dash:
 """
             st.markdown(splits_html_full, unsafe_allow_html=True)
             
-            # --- ARSENAL PERFORMANCE TABLE CALCS ---
+            # --- ARSENAL PERFORMANCE TABLE CALCS (WITH PITCH & ARSENAL OUT+ GRADES) ---
             st.markdown("<div class='section-title'>ARSENAL PERFORMANCE</div>", unsafe_allow_html=True)
             
             arsenal_rows = []
+            weighted_out_plus_sum = 0.0
+            graded_pitch_count = 0
+
             if 'TaggedPitchType' in df.columns:
                 pitch_types = df['TaggedPitchType'].dropna().unique()
                 total_pitches = len(df)
@@ -845,14 +1024,70 @@ with tab_dash:
                     spins = pt_df['SpinRate'].dropna()
                     spin_str = f"{int(spins.min())}-{int(spins.mean())}, T{int(spins.max())}" if not spins.empty else "-"
                         
-                    hb = f"{pt_df['HorzBreak'].mean():.1f}" if 'HorzBreak' in pt_df.columns else "-"
-                    ivb = f"{pt_df['InducedVertBreak'].mean():.1f}" if 'InducedVertBreak' in pt_df.columns else "-"
-                    vaa = f"{pt_df['VertApprAngle'].mean():.1f}" if 'VertApprAngle' in pt_df.columns else "-"
+                    hb = f"{pt_df['HorzBreak'].mean():.1f}" if 'HorzBreak' in pt_df.columns and not pt_df['HorzBreak'].dropna().empty else "-"
+                    ivb = f"{pt_df['InducedVertBreak'].mean():.1f}" if 'InducedVertBreak' in pt_df.columns and not pt_df['InducedVertBreak'].dropna().empty else "-"
+                    vaa = f"{pt_df['VertApprAngle'].mean():.1f}" if 'VertApprAngle' in pt_df.columns and not pt_df['VertApprAngle'].dropna().empty else "-"
                     
-                    row_html = f'<tr style="background-color: {bg_color}; color: {text_color}; border-bottom: 2px solid #FFFFFF;"><td><b>{abbr}</b></td><td>{usage}</td><td>{zone_pct}</td><td>{whiff_pct}</td><td>{velo_str}</td><td>{spin_str}</td><td>{ivb}</td><td>{hb}</td><td>{vaa}</td></tr>'
+                    # Calculate Specific Pitch Performance Grade (Out+)
+                    pt_out_plus = calc_out_plus_grade(pt_df, pt, abbr)
+                    if not pd.isna(pt_out_plus):
+                        out_plus_str = f"<b>{pt_out_plus:.1f}</b>"
+                        weighted_out_plus_sum += pt_out_plus * count
+                        graded_pitch_count += count
+                    else:
+                        out_plus_str = "-"
+                    
+                    row_html = (
+                        f'<tr style="background-color: {bg_color}; color: {text_color}; border-bottom: 2px solid #FFFFFF;">'
+                        f'<td><b>{abbr}</b></td><td>{usage}</td><td>{zone_pct}</td><td>{whiff_pct}</td>'
+                        f'<td>{velo_str}</td><td>{spin_str}</td><td>{ivb}</td><td>{hb}</td><td>{vaa}</td>'
+                        f'<td>{out_plus_str}</td></tr>'
+                    )
                     arsenal_rows.append(row_html)
+
+                # --- FULL ARSENAL AVERAGE SUMMARY ROW ---
+                if arsenal_rows and total_pitches > 0:
+                    if 'PlateLocSide' in df.columns and 'PlateLocHeight' in df.columns:
+                        all_in_zone = df[(df['PlateLocSide'] >= -0.8) & (df['PlateLocSide'] <= 0.8) &
+                                         (df['PlateLocHeight'] >= 1.575) & (df['PlateLocHeight'] <= 3.575)]
+                        tot_zone_pct = f"{(len(all_in_zone) / total_pitches * 100):.1f}%"
+                    else:
+                        tot_zone_pct = "-"
+
+                    all_swings = df[df['PitchCall'].isin(['StrikeSwinging', 'FoulBallFieldable', 'FoulBallNotFieldable', 'InPlay'])]
+                    all_whiffs = df[df['PitchCall'] == 'StrikeSwinging']
+                    tot_whiff_pct = f"{(len(all_whiffs) / len(all_swings) * 100):.1f}%" if len(all_swings) > 0 else "0%"
+
+                    all_speeds = df['RelSpeed'].dropna()
+                    tot_velo = f"{all_speeds.mean():.1f} AVG" if not all_speeds.empty else "-"
+
+                    all_spins = df['SpinRate'].dropna()
+                    tot_spin = f"{int(all_spins.mean())} AVG" if not all_spins.empty else "-"
+
+                    tot_ivb = f"{df['InducedVertBreak'].mean():.1f}" if 'InducedVertBreak' in df.columns and not df['InducedVertBreak'].dropna().empty else "-"
+                    tot_hb = f"{df['HorzBreak'].mean():.1f}" if 'HorzBreak' in df.columns and not df['HorzBreak'].dropna().empty else "-"
+                    tot_vaa = f"{df['VertApprAngle'].mean():.1f}" if 'VertApprAngle' in df.columns and not df['VertApprAngle'].dropna().empty else "-"
+
+                    arsenal_out_plus = (weighted_out_plus_sum / graded_pitch_count) if graded_pitch_count > 0 else np.nan
+                    arsenal_out_plus_str = f"<b>{arsenal_out_plus:.1f}</b>" if not pd.isna(arsenal_out_plus) else "-"
+
+                    summary_row_html = (
+                        f'<tr style="background-color: {BLACK}; color: {WHITE}; border-top: 3px solid {OMAHA_RED}; font-weight: bold;">'
+                        f'<td><span style="color: {OMAHA_RED};">ARSENAL AVG</span></td>'
+                        f'<td>100% ({total_pitches})</td>'
+                        f'<td>{tot_zone_pct}</td>'
+                        f'<td>{tot_whiff_pct}</td>'
+                        f'<td>{tot_velo}</td>'
+                        f'<td>{tot_spin}</td>'
+                        f'<td>{tot_ivb}</td>'
+                        f'<td>{tot_hb}</td>'
+                        f'<td>{tot_vaa}</td>'
+                        f'<td style="color: #4ade80; font-size: 1.05em;">{arsenal_out_plus_str}</td>'
+                        f'</tr>'
+                    )
+                    arsenal_rows.append(summary_row_html)
             
-            arsenal_html_body = "".join(arsenal_rows) if arsenal_rows else "<tr><td colspan='9'>No Pitch Data Available</td></tr>"
+            arsenal_html_body = "".join(arsenal_rows) if arsenal_rows else "<tr><td colspan='10'>No Pitch Data Available</td></tr>"
             
             arsenal_html_full = f"""
 <div style="overflow-x: auto;">
@@ -868,6 +1103,7 @@ with tab_dash:
 <th><span class="header-white">IVB</span></th>
 <th><span class="header-white">HB</span></th>
 <th><span class="header-white">VAA</span></th>
+<th><span class="header-red">PERF (OUT+)</span></th>
 </tr>
 </thead>
 <tbody>
